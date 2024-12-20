@@ -62,6 +62,9 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         # #widgets-and-dialogs-with-auto-connect
         self.setupUi(self)
 
+        # Set flag for time range adjustments
+        self.updating_time_range = False
+
         # Store the iface object
         self.iface = iface
 
@@ -86,6 +89,10 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         # Set initial values for dateUntilTimeEdit and dateFromTimeEdit
         self.update_time_range()
+
+        # Connect date/time edits to a custom range handler
+        self.dateFromTimeEdit.dateTimeChanged.connect(self.handle_custom_date_change)
+        self.dateUntilTimeEdit.dateTimeChanged.connect(self.handle_custom_date_change)
 
         # Initialize variables
         self.loaded_layer = None
@@ -206,15 +213,22 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     
     def reset_values(self):
         """Reset all values in the widgets and remove the created layer."""
-        # Reset date/time edits by calling update_time_range
-        self.timeComboBox.setCurrentIndex(0)  # Reset the combo box to the default placeholder
+        # Remove "Custom range" from the combo box if it exists
+        custom_range_index = self.timeComboBox.findText("Custom range")
+        if custom_range_index != -1:
+            self.timeComboBox.removeItem(custom_range_index)
+
+        # Reset the timeComboBox to the default placeholder
+        self.timeComboBox.setCurrentIndex(0)  # Reset to "Choose period"
+
+        # Reset date/time edits
         self.update_time_range()  # Reset dateFromTimeEdit and dateUntilTimeEdit
 
         # Reset spin boxes to their default values
-        self.magMinSpinBox.setValue(-3)
+        self.magMinSpinBox.setValue(0)
         self.magMaxSpinBox.setValue(7)
         self.depthMinSpinBox.setValue(0)
-        self.depthMaxSpinBox.setValue(80)
+        self.depthMaxSpinBox.setValue(25)
 
         # Safely check and remove the layer
         try:
@@ -257,11 +271,12 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     
     def update_time_range(self):
         """Update the date/time range based on the timeComboBox selection."""
+        self.updating_time_range = True  # Set the flag
         current_time = QDateTime.currentDateTime()
         selected_text = self.timeComboBox.currentText()
 
         # Default: Reset to current day
-        start_time = current_time
+        start_time = current_time.addDays(-7)  # Default: 7 days
         end_time = current_time
 
         if selected_text == "Last 1 hour":
@@ -289,15 +304,50 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         elif selected_text == "Last 365 days":
             start_time = current_time.addDays(-365)  # 365 days
         else:
-            start_time = current_time.addDays(-7)  # 7 days
+            start_time = current_time.addDays(-7)  # Default: 7 days
 
-        # Round end time to the last half-hour
-        end_time = end_time.addSecs(-(end_time.time().minute() % 30) * 60)
-        end_time = end_time.addSecs(-end_time.time().second())
+        # Round start_time and end_time to the nearest half-hour
+        def round_to_nearest_half_hour(qdatetime):
+            minute = qdatetime.time().minute()
+            second = qdatetime.time().second()
+
+            # Calculate difference to the nearest half-hour
+            if minute < 15 or (minute == 15 and second == 0):
+                adjustment = -(minute * 60 + second)
+            elif minute < 45 or (minute == 45 and second == 0):
+                adjustment = (30 - minute) * 60 - second
+            else:
+                adjustment = (60 - minute) * 60 - second
+
+            return qdatetime.addSecs(adjustment)
+
+        start_time = round_to_nearest_half_hour(start_time)
+        end_time = round_to_nearest_half_hour(end_time)
 
         # Update the date/time widgets
         self.dateFromTimeEdit.setDateTime(start_time)
         self.dateUntilTimeEdit.setDateTime(end_time)
+
+        self.updating_time_range = False  # Unset the flag
+
+
+    
+    def handle_custom_date_change(self):
+        """Set the timeComboBox to 'Custom range' when date/time is manually changed."""
+        if self.updating_time_range:
+            return  # Skip if the date fields are being updated programmatically
+
+        # Add "Custom range" if it doesn't exist
+        custom_range_index = self.timeComboBox.findText("Custom range")
+        if custom_range_index == -1:
+            self.timeComboBox.addItem("Custom range")
+            custom_range_index = self.timeComboBox.count() - 1
+
+        # Set the combo box to "Custom range" unless it's already set
+        if self.timeComboBox.currentText() != "Custom range":
+            self.timeComboBox.setCurrentIndex(custom_range_index)
+
+
 
     def closeEvent(self, event):
         self.closingPlugin.emit()
