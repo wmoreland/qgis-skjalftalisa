@@ -44,6 +44,44 @@ from qgis.core import (
     QgsSingleSymbolRenderer
     )
 
+def convert_areas_json(data):
+    """
+    Convert a custom area polygon data format to GeoJSON FeatureCollection.
+
+    Args:
+        data (list): List of dictionaries containing area and polygon information.
+
+    Returns:
+        dict: GeoJSON FeatureCollection.
+    """
+    geojson = {
+        "type": "FeatureCollection",
+        "features": []
+    }
+
+    for item in data:
+        area_json = item.get("area_json", {})
+        name = area_json.get("name")
+        polygon = area_json.get("polygon", [])
+
+        # Reverse coordinates for GeoJSON (lon, lat)
+        geojson_polygon = [[(coord[1], coord[0]) for coord in polygon]]
+
+        feature = {
+            "type": "Feature",
+            "properties": {
+                "name": name
+            },
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": geojson_polygon
+            }
+        }
+
+        geojson["features"].append(feature)
+
+    return geojson
+
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
     os.path.dirname(__file__), 'qgis_skjalfalisa_dockwidget_base.ui'))
 
@@ -97,39 +135,40 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         # Initialize variables
         self.loaded_layer = None
 
+        # Initialize areaComboBox
+        self.populate_area_combobox()
+
         # Connect buttons to methods
         self.filterPushButton.clicked.connect(self.fetch_and_load_earthquakes)
         self.resetPushButton.clicked.connect(self.reset_values)
 
+        # Initialize areaCheckBox (optional logic)
+        self.areaCheckBox.stateChanged.connect(self.handle_area_checkbox)
+
     def fetch_and_load_earthquakes(self):
         """Fetch earthquake data and load it into QGIS."""
-        # Validate the date range
         start_time = self.dateFromTimeEdit.dateTime()
         end_time = self.dateUntilTimeEdit.dateTime()
+
         if start_time >= end_time:
             self.show_error("Invalid date range: 'From' time must be earlier than 'Until' time.")
             return
 
-        # Convert to string for the API
         start_time_str = start_time.toString("yyyy-MM-dd HH:mm:ss")
         end_time_str = end_time.toString("yyyy-MM-dd HH:mm:ss")
-
-        # Fetch other values
         size_min = self.magMinSpinBox.value()
         size_max = self.magMaxSpinBox.value()
         depth_min = self.depthMinSpinBox.value()
         depth_max = self.depthMaxSpinBox.value()
 
-        # Construct the request body
-        url = "https://vi-api.vedur.is/skjalftalisa/v1/quakefilter"
-        headers = {"Content-Type": "application/json"}
+        # Include the selected area polygon
+        selected_area = self.areaComboBox.currentText()
+        if selected_area != "Choose area" and selected_area in self.area_polygons:
+            area_polygon = self.area_polygons[selected_area]
+        else:
+            area_polygon = None
+
         body = {
-            "area": [
-                [63.2, -24.6],
-                [66.6, -24.6],
-                [66.6, -13.4],
-                [63.2, -13.4],
-            ],
             "depth_max": depth_max,
             "depth_min": depth_min,
             "end_time": end_time_str,
@@ -141,10 +180,13 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             "start_time": start_time_str,
         }
 
-        try:
-            # Send the POST request
-            response = requests.post(url, headers=headers, json=body)
+        # Add area if available
+        if area_polygon:
+            body["area"] = area_polygon
 
+        try:
+            # Fetch earthquake data
+            response = requests.post("https://vi-api.vedur.is/skjalftalisa/v1/quakefilter", json=body)
             if response.status_code == 200:
                 quake_data = response.json()
                 geojson_data = {
@@ -152,15 +194,18 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     "features": quake_data,
                 }
 
-                # Use a temporary file to save the GeoJSON
                 from tempfile import NamedTemporaryFile
                 with NamedTemporaryFile(suffix=".geojson", delete=False) as temp_file:
                     geojson_path = temp_file.name
                     with open(geojson_path, "w") as file:
                         json.dump(geojson_data, file, indent=2)
 
-                # Load the GeoJSON as a temporary layer in QGIS
+                # Load the earthquake GeoJSON layer
                 self.load_geojson_layer(geojson_path, "Earthquakes")
+
+                # Optionally display the area polygon if the checkbox is checked
+                if self.areaCheckBox.isChecked() and area_polygon:
+                    self.display_area_polygon(selected_area, area_polygon)
             else:
                 self.show_error(f"Error: {response.status_code} - {response.text}")
         except Exception as e:
@@ -346,8 +391,80 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         # Set the combo box to "Custom range" unless it's already set
         if self.timeComboBox.currentText() != "Custom range":
             self.timeComboBox.setCurrentIndex(custom_range_index)
+        
+    
+    def populate_area_combobox(self):
+        """Fetch area information from the API and populate the areaComboBox."""
+        url = "https://vi-api.vedur.is/skjalftalisa/v1/areas"
+        headers = {"Accept": "application/json"}
+
+        try:
+            # Fetch areas from the API
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                areas = response.json()
+                
+                areas_geojson = convert_areas_json(areas)
+
+                print(areas_geojson)
+
+                # Clear the combo box and prepare to store polygons
+                self.areaComboBox.clear()
+                self.areaComboBox.addItem("Choose area")  # Placeholder item
+                self.area_polygons = {}  # Dictionary to store area polygons
+
+                # Populate the combo box
+                for area in areas.values():
+                    area_name = area["name"]
+                    area_polygon = area["polygon"]
+                    self.areaComboBox.addItem(area_name)
+                    self.area_polygons[area_name] = area_polygon
+            else:
+                self.show_error(f"Failed to fetch areas: {response.status_code} - {response.text}")
+        except Exception as e:
+            self.show_error(f"An error occurred while fetching areas: {str(e)}")
 
 
+    def display_area_polygon(self, area_name, polygon):
+        """Display the selected area's polygon as a separate layer."""
+        geojson_data = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [polygon]
+                    },
+                    "properties": {"name": area_name}
+                }
+            ]
+        }
+
+        from tempfile import NamedTemporaryFile
+        with NamedTemporaryFile(suffix=".geojson", delete=False) as temp_file:
+            geojson_path = temp_file.name
+            with open(geojson_path, "w") as file:
+                json.dump(geojson_data, file, indent=2)
+
+        layer_name = f"Area: {area_name}"
+        layer = QgsVectorLayer(geojson_path, layer_name, "ogr")
+        if layer.isValid():
+            QgsProject.instance().addMapLayer(layer)
+        else:
+            self.show_error("Failed to load area polygon layer.")
+
+    def handle_area_checkbox(self, state):
+        """Handle areaCheckBox toggle."""
+        if state == Qt.Checked:
+            selected_area = self.areaComboBox.currentText()
+            if selected_area in self.area_polygons:
+                self.display_area_polygon(selected_area, self.area_polygons[selected_area])
+        else:
+            # Remove any existing area polygon layer
+            layers = QgsProject.instance().mapLayersByName("Area")
+            for layer in layers:
+                QgsProject.instance().removeMapLayer(layer)
 
     def closeEvent(self, event):
         self.closingPlugin.emit()
