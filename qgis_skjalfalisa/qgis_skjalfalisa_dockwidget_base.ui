@@ -411,6 +411,13 @@
       </property>
      </widget>
     </item>
+    <item row="2" column="3">
+     <widget class="QCheckBox" name="areaCheckBox">
+      <property name="text">
+       <string>Sýna</string>
+      </property>
+     </widget>
+    </item>
    </layout>
   </widget>
  </widget>
