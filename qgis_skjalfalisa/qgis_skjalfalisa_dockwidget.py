@@ -308,6 +308,31 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         if not layer or not layer.isValid():
             return
 
+        # Define the HTML template for map tips
+        html_template = """
+        <table border='1' style='border-collapse:collapse'>
+        <tr>
+            <td>Kerfi</td>
+            <td>[% "originating_system" %]</td>
+        </tr>
+        <tr>
+            <td>Dags</td>
+            <td>[% format_date( "Time", 'yyyy-MM-dd HH:mm') %]</td>
+        </tr>
+        <tr>
+            <td>Dýpi</td>
+            <td>[% "depth" %]</td>
+        </tr>
+        <tr>
+            <td>Stærðir</td>
+            <td>[% "magnitude" %] [% "magnitude_type" %]</td>
+        </tr>
+        </table>
+        """
+
+        # Set the map tip template for the layer
+        layer.setMapTipTemplate(html_template)
+
         # Fetch attribute table
         layer_data = [feat for feat in layer.getFeatures()]
 
@@ -358,11 +383,11 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         ranges = []
         colors = [
-            "#d73027",
-            "#fc8d59",
-            "#fee090",
-            "#91bfdb",
-            "#4575b4",
+            "#b3d73027",
+            "#b3fc8d59",
+            "#b3fee090",
+            "#b391bfdb",
+            "#b34575b4",
         ]  # Gradient colors
         for i in range(num_classes):
             lower_bound = min_time + i * step
@@ -372,6 +397,12 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             symbol = QgsSymbol.defaultSymbol(layer.geometryType())
             if symbol:
                 symbol.setColor(QColor(colors[i]))
+
+                # Set size scaling using QgsProperty and scale_linear expression
+                size_expression = f'scale_linear( "magnitude", minimum("magnitude"), maximum("magnitude"), 1, 10)'
+                size_property = QgsProperty.fromExpression(size_expression)
+                symbol.setDataDefinedSize(size_property)
+
                 ranges.append(QgsRendererRange(lower_bound, upper_bound, symbol, label))
 
         # Apply graduated symbology
