@@ -34,7 +34,7 @@ from shapely.geometry import shape, mapping
 
 from qgis.PyQt import QtWidgets, uic
 from qgis.PyQt.QtGui import QColor
-from qgis.PyQt.QtCore import pyqtSignal, QDateTime, Qt
+from qgis.PyQt.QtCore import pyqtSignal, QDateTime, Qt, QVariant
 from qgis.core import (
     QgsVectorLayer,
     QgsProject,
@@ -49,6 +49,8 @@ from qgis.core import (
     QgsSingleSymbolRenderer,
     QgsSimpleFillSymbolLayer,
     QgsMarkerSymbol,
+    QgsField,
+    QgsFeatureRequest,
 )
 
 FORM_CLASS, _ = uic.loadUiType(
@@ -232,7 +234,8 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         layer_name = f"{layer_name} {start_date} to {end_date}"
         layer = QgsVectorLayer(geojson_path, layer_name, "ogr")
         if layer.isValid():
-            self.apply_simple_earthquake_symbology(layer)
+            # self.apply_simple_earthquake_symbology(layer)
+            self.apply_graduated_earthquake_symbology(layer)
             QgsProject.instance().addMapLayer(layer)
             self.earthquake_layer = layer  # Save the layer reference
         else:
@@ -297,6 +300,89 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         # Apply a single symbol renderer
         renderer = QgsSingleSymbolRenderer(symbol)
+        layer.setRenderer(renderer)
+        layer.triggerRepaint()
+
+    def apply_graduated_earthquake_symbology(self, layer):
+        """Apply graduated symbology to the earthquake layer based on recency."""
+        if not layer or not layer.isValid():
+            return
+
+        # Fetch attribute table
+        layer_data = [feat for feat in layer.getFeatures()]
+
+        if not layer_data:
+            self.show_error("No features in the layer to apply symbology.")
+            return
+
+        # Determine the time range and convert to numeric values
+        time_field = "time"  # Replace with the actual field name storing the earthquake timestamp
+        numeric_time_field = "__time_numeric"  # Temporary field for numeric time values
+
+        # Check if the field already exists, if not, add it
+        if numeric_time_field not in [field.name() for field in layer.fields()]:
+            layer.startEditing()
+            layer.dataProvider().addAttributes(
+                [QgsField(numeric_time_field, QVariant.Double)]
+            )
+            layer.updateFields()
+            layer.commitChanges()
+
+        # Populate the numeric time field
+        layer.startEditing()
+        for feat in layer.getFeatures():
+            feat_time = (
+                feat[time_field].toPyDateTime().timestamp()
+                if isinstance(feat[time_field], QDateTime)
+                else feat[time_field].timestamp()
+            )
+            feat[numeric_time_field] = feat_time
+            layer.updateFeature(feat)
+        layer.commitChanges()
+
+        # Fetch the range of numeric time values
+        time_values = [feat[numeric_time_field] for feat in layer.getFeatures()]
+        min_time = min(time_values)
+        max_time = max(time_values)
+
+        # Create ranges based on recency
+        total_seconds = max_time - min_time
+        if total_seconds == 0:
+            self.show_error(
+                "All earthquakes have the same timestamp; cannot create ranges."
+            )
+            return
+
+        num_classes = 5  # Number of color ranges
+        step = total_seconds / num_classes
+
+        ranges = []
+        colors = [
+            "#d73027",
+            "#fc8d59",
+            "#fee090",
+            "#91bfdb",
+            "#4575b4",
+        ]  # Gradient colors
+        for i in range(num_classes):
+            lower_bound = min_time + i * step
+            upper_bound = min_time + (i + 1) * step
+
+            label = f"{datetime.fromtimestamp(lower_bound).strftime('%Y-%m-%d %H:%M')} - {datetime.fromtimestamp(upper_bound).strftime('%Y-%m-%d %H:%M')}"
+            symbol = QgsSymbol.defaultSymbol(layer.geometryType())
+            if symbol:
+                symbol.setColor(QColor(colors[i]))
+                ranges.append(QgsRendererRange(lower_bound, upper_bound, symbol, label))
+
+        # Apply graduated symbology
+        renderer = QgsGraduatedSymbolRenderer(numeric_time_field, ranges)
+        renderer.setMode(QgsGraduatedSymbolRenderer.EqualInterval)
+        renderer.setOrderBy(
+            QgsFeatureRequest.OrderBy(
+                [QgsFeatureRequest.OrderByClause("__time_numeric", False)]
+            )
+        )
+        renderer.setOrderByEnabled(True)
         layer.setRenderer(renderer)
         layer.triggerRepaint()
 
