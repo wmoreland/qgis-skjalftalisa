@@ -39,6 +39,7 @@ from qgis.core import (
     QgsVectorLayer,
     QgsProject,
     QgsSymbol,
+    QgsFillSymbol,
     QgsGraduatedSymbolRenderer,
     QgsRendererRange,
     QgsSymbolLayer,
@@ -46,6 +47,8 @@ from qgis.core import (
     QgsStyle,
     QgsSimpleMarkerSymbolLayer,
     QgsSingleSymbolRenderer,
+    QgsSimpleFillSymbolLayer,
+    QgsMarkerSymbol,
 )
 
 FORM_CLASS, _ = uic.loadUiType(
@@ -186,13 +189,13 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     with open(geojson_path, "w") as file:
                         json.dump(geojson_data, file, indent=2)
 
+                # Optionally display the area polygon if the checkbox is checked
+                if self.areaCheckBox.isChecked() and area_polygon:
+                    self.display_area_polygon(selected_area, area_polygon_geojson)
+
                 # Load the earthquake GeoJSON layer
                 self.load_geojson_layer(geojson_path, "Earthquakes")
 
-                # Optionally display the area polygon if the checkbox is checked
-                if self.areaCheckBox.isChecked() and area_polygon:
-                    print(area_polygon_geojson)
-                    self.display_area_polygon(selected_area, area_polygon_geojson)
             else:
                 self.show_error(f"Error: {response.status_code} - {response.text}")
         except Exception as e:
@@ -225,23 +228,15 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         start_date = self.dateFromTimeEdit.date().toString("yyyy-MM-dd")
         end_date = self.dateUntilTimeEdit.date().toString("yyyy-MM-dd")
 
-        # Construct the new layer name
-        layer_name_with_date = f"{layer_name} {start_date} to {end_date}"
-
         # Load the GeoJSON file as a vector layer
-        layer = QgsVectorLayer(geojson_path, layer_name_with_date, "ogr")
-        if not layer.isValid():
-            self.show_error("Failed to load GeoJSON layer.")
-            return
-
-        # Apply simple symbology
-        self.apply_simple_earthquake_symbology(layer)
-
-        # Add the layer to the QGIS project
-        QgsProject.instance().addMapLayer(layer)
-
-        # Save the layer reference
-        self.earthquake_layer = layer
+        layer_name = f"{layer_name} {start_date} to {end_date}"
+        layer = QgsVectorLayer(geojson_path, layer_name, "ogr")
+        if layer.isValid():
+            self.apply_simple_earthquake_symbology(layer)
+            QgsProject.instance().addMapLayer(layer)
+            self.earthquake_layer = layer  # Save the layer reference
+        else:
+            self.show_error("Failed to load earthquakes layer.")
 
     def reset_values(self):
         """Reset all values in the widgets and remove the created layer."""
@@ -461,6 +456,14 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def display_area_polygon(self, selected_area, geometry_str):
         """Display the selected area's polygon as a separate layer."""
         try:
+            # Safely check and remove the layer
+            try:
+                if self.area_layer:
+                    QgsProject.instance().removeMapLayer(self.area_layer.id())
+            except RuntimeError:
+                # Layer was already deleted, so just clear the reference
+                pass
+
             # Parse the geometry string into a dictionary
             geojson = json.loads(geometry_str)
 
@@ -505,12 +508,24 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             layer_name = f"Area: {selected_area}"
             layer = QgsVectorLayer(geojson_path, layer_name, "ogr")
             if layer.isValid():
+                self.apply_area_symbology(layer)
                 QgsProject.instance().addMapLayer(layer)
                 self.area_layer = layer  # Save the reference to the layer
             else:
                 self.show_error("Failed to load area polygon layer.")
         except Exception as e:
             self.show_error(f"An error occurred while displaying the polygon: {str(e)}")
+
+    def apply_area_symbology(self, layer):
+        if not layer or not layer.isValid():
+            return
+
+        symbol = QgsFillSymbol.createSimple(
+            {"color": "#330000FF", "outline_color": "#0000FF"}
+        )
+
+        layer.renderer().setSymbol(symbol)
+        layer.triggerRepaint()
 
     def handle_area_checkbox(self, state):
         """Handle areaCheckBox toggle."""
