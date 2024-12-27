@@ -29,6 +29,9 @@ import requests
 import geopandas as gpd
 from datetime import datetime, timedelta
 
+from shapely.ops import orient
+from shapely.geometry import shape, mapping
+
 from qgis.PyQt import QtWidgets, uic
 from qgis.PyQt.QtGui import QColor
 from qgis.PyQt.QtCore import pyqtSignal, QDateTime, Qt
@@ -99,7 +102,8 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.dateUntilTimeEdit.dateTimeChanged.connect(self.handle_custom_date_change)
 
         # Initialize variables
-        self.loaded_layer = None
+        self.earthquake_layer = None  # earthquake points
+        self.area_layer = None  # filter-by-area polygon
 
         # Initialize areaComboBox
         self.populate_area_combobox()
@@ -132,10 +136,10 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         # Include the selected area polygon
         selected_area = self.areaComboBox.currentText()
         if selected_area != "Choose area":
-            area_polygon = self.feature_collection_gdf.loc[
+            area_polygon_geojson = self.feature_collection_gdf.loc[
                 self.feature_collection_gdf["name"] == selected_area
             ]["geometry"].to_json()
-            area_polygon = json.loads(area_polygon)["features"][0]["geometry"][
+            area_polygon = json.loads(area_polygon_geojson)["features"][0]["geometry"][
                 "coordinates"
             ][0]
             area_polygon = [
@@ -187,7 +191,8 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
                 # Optionally display the area polygon if the checkbox is checked
                 if self.areaCheckBox.isChecked() and area_polygon:
-                    self.display_area_polygon(selected_area, area_polygon)
+                    print(area_polygon_geojson)
+                    self.display_area_polygon(selected_area, area_polygon_geojson)
             else:
                 self.show_error(f"Error: {response.status_code} - {response.text}")
         except Exception as e:
@@ -210,8 +215,8 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         # Safely check and remove the layer
         try:
-            if self.loaded_layer:
-                QgsProject.instance().removeMapLayer(self.loaded_layer.id())
+            if self.earthquake_layer:
+                QgsProject.instance().removeMapLayer(self.earthquake_layer.id())
         except RuntimeError:
             # Layer was already deleted, so just clear the reference
             pass
@@ -236,7 +241,7 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         QgsProject.instance().addMapLayer(layer)
 
         # Save the layer reference
-        self.loaded_layer = layer
+        self.earthquake_layer = layer
 
     def reset_values(self):
         """Reset all values in the widgets and remove the created layer."""
@@ -262,14 +267,22 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         # Safely check and remove the layer
         try:
-            if self.loaded_layer:
-                QgsProject.instance().removeMapLayer(self.loaded_layer.id())
+            if self.earthquake_layer:
+                QgsProject.instance().removeMapLayer(self.earthquake_layer.id())
         except RuntimeError:
             # Layer was already deleted, so just clear the reference
             pass
 
+        # Safely remove the area polygon layer
+        try:
+            if self.area_layer:
+                QgsProject.instance().removeMapLayer(self.area_layer.id())
+        except RuntimeError:
+            pass
+        self.area_layer = None
+
         # Clear the layer reference
-        self.loaded_layer = None
+        self.earthquake_layer = None
 
         # Refresh the map canvas
         self.iface.mapCanvas().refresh()
@@ -445,48 +458,71 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         except Exception as e:
             self.show_error(f"An error occurred while fetching areas: {str(e)}")
 
-    def display_area_polygon(self, area_name, polygon):
+    def display_area_polygon(self, selected_area, geometry_str):
         """Display the selected area's polygon as a separate layer."""
-        geojson_data = {
-            "type": "FeatureCollection",
-            "features": [
-                {
-                    "type": "Feature",
-                    "geometry": {"type": "Polygon", "coordinates": [polygon]},
-                    "properties": {"name": area_name},
-                }
-            ],
-        }
+        try:
+            # Parse the geometry string into a dictionary
+            geojson = json.loads(geometry_str)
 
-        print(geojson_data)
+            # Extract the first feature's geometry from the FeatureCollection
+            if geojson["type"] == "FeatureCollection" and "features" in geojson:
+                feature_geometry = geojson["features"][0]["geometry"]
+            else:
+                raise ValueError(
+                    "Invalid GeoJSON: Expected a FeatureCollection with features."
+                )
 
-        from tempfile import NamedTemporaryFile
+            # Convert the feature geometry to a shapely object
+            geometry = shape(feature_geometry)
 
-        with NamedTemporaryFile(suffix=".geojson", delete=False) as temp_file:
-            geojson_path = temp_file.name
-            with open(geojson_path, "w") as file:
-                json.dump(geojson_data, file, indent=2)
+            # Ensure the geometry follows the right-hand rule (counter-clockwise for exterior)
+            oriented_geometry = orient(geometry, sign=1.0)
 
-        layer_name = f"Area: {area_name}"
-        layer = QgsVectorLayer(geojson_path, layer_name, "ogr")
-        if layer.isValid():
-            QgsProject.instance().addMapLayer(layer)
-        else:
-            self.show_error("Failed to load area polygon layer.")
+            # Convert the oriented geometry back to GeoJSON format
+            geojson_oriented = mapping(oriented_geometry)
+
+            # Wrap in FeatureCollection format
+            geojson_data_corrected = {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "geometry": geojson_oriented,
+                        "properties": {"name": selected_area},
+                    }
+                ],
+            }
+
+            from tempfile import NamedTemporaryFile
+
+            # Write the corrected GeoJSON to a temporary file
+            with NamedTemporaryFile(suffix=".geojson", delete=False) as temp_file:
+                geojson_path = temp_file.name
+                with open(geojson_path, "w") as file:
+                    json.dump(geojson_data_corrected, file, indent=2)
+
+            # Load the corrected GeoJSON as a layer
+            layer_name = f"Area: {selected_area}"
+            layer = QgsVectorLayer(geojson_path, layer_name, "ogr")
+            if layer.isValid():
+                QgsProject.instance().addMapLayer(layer)
+                self.area_layer = layer  # Save the reference to the layer
+            else:
+                self.show_error("Failed to load area polygon layer.")
+        except Exception as e:
+            self.show_error(f"An error occurred while displaying the polygon: {str(e)}")
 
     def handle_area_checkbox(self, state):
         """Handle areaCheckBox toggle."""
         if state == Qt.Checked:
-            selected_area = self.areaComboBox.currentText()
-            if selected_area in self.area_polygons:
-                self.display_area_polygon(
-                    selected_area, self.area_polygons[selected_area]
-                )
+            pass  # don't do anything - this is handled by earthquake function
         else:
-            # Remove any existing area polygon layer
-            layers = QgsProject.instance().mapLayersByName("Area")
-            for layer in layers:
-                QgsProject.instance().removeMapLayer(layer)
+            try:
+                if self.area_layer:
+                    QgsProject.instance().removeMapLayer(self.area_layer.id())
+            except RuntimeError:
+                pass
+            self.area_layer = None
 
     def closeEvent(self, event):
         self.closingPlugin.emit()
