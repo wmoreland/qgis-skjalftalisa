@@ -356,10 +356,27 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         # Create ranges based on recency
         total_seconds = max_time - min_time
-        if total_seconds == 0:
-            self.show_error(
-                "All earthquakes have the same timestamp; cannot create ranges."
-            )
+        
+        # Handle case where all timestamps are the same
+        if min_time == max_time:
+            single_category_color = "#b32d1e3e"  # Fallback color
+            label = f"All events at {datetime.fromtimestamp(min_time).strftime('%Y-%m-%d %H:%M')}"
+            symbol = QgsSymbol.defaultSymbol(layer.geometryType())
+            if symbol:
+                symbol.setColor(QColor(single_category_color))
+
+                # Set size scaling using magnitude
+                size_expression = ('scale_linear( "magnitude",'
+                                'minimum("magnitude"),'
+                                'maximum("magnitude"), 1, 10)')
+                size_property = QgsProperty.fromExpression(size_expression)
+                symbol.setDataDefinedSize(size_property)
+
+                range_ = QgsRendererRange(min_time, max_time, symbol, label)
+
+            renderer = QgsGraduatedSymbolRenderer(numeric_time_field, [range_])
+            layer.setRenderer(renderer)
+            layer.triggerRepaint()
             return
 
         num_classes = 5  # Number of color ranges
