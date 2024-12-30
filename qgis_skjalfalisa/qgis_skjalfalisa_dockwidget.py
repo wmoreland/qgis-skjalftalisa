@@ -23,11 +23,10 @@
 """
 
 import os
-import math
 import json
 import requests
 import geopandas as gpd
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from shapely.ops import orient
 from shapely.geometry import shape, mapping
@@ -42,19 +41,14 @@ from qgis.core import (
     QgsFillSymbol,
     QgsGraduatedSymbolRenderer,
     QgsRendererRange,
-    QgsSymbolLayer,
     QgsProperty,
-    QgsStyle,
-    QgsSimpleMarkerSymbolLayer,
-    QgsSingleSymbolRenderer,
-    QgsSimpleFillSymbolLayer,
-    QgsMarkerSymbol,
     QgsField,
     QgsFeatureRequest,
 )
 
 FORM_CLASS, _ = uic.loadUiType(
-    os.path.join(os.path.dirname(__file__), "qgis_skjalfalisa_dockwidget_base.ui")
+    os.path.join(os.path.dirname(__file__),
+                 "qgis_skjalfalisa_dockwidget_base.ui")
 )
 
 
@@ -96,15 +90,18 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 "Last 365 days",
             ]
         )
-        self.timeComboBox.setCurrentIndex(0)  # Set the placeholder as the default
+        # set the placeholder as default
+        self.timeComboBox.setCurrentIndex(0)
         self.timeComboBox.currentIndexChanged.connect(self.update_time_range)
 
         # Set initial values for dateUntilTimeEdit and dateFromTimeEdit
         self.update_time_range()
 
         # Connect date/time edits to a custom range handler
-        self.dateFromTimeEdit.dateTimeChanged.connect(self.handle_custom_date_change)
-        self.dateUntilTimeEdit.dateTimeChanged.connect(self.handle_custom_date_change)
+        self.dateFromTimeEdit.dateTimeChanged.connect(
+            self.handle_custom_date_change)
+        self.dateUntilTimeEdit.dateTimeChanged.connect(
+            self.handle_custom_date_change)
 
         # Initialize variables
         self.earthquake_layer = None  # earthquake points
@@ -127,7 +124,8 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         if start_time >= end_time:
             self.show_error(
-                "Invalid date range: 'From' time must be earlier than 'Until' time."
+                "Invalid date range: 'From' time must be earlier than "
+                "'Until' time."
             )
             return
 
@@ -144,9 +142,8 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             area_polygon_geojson = self.feature_collection_gdf.loc[
                 self.feature_collection_gdf["name"] == selected_area
             ]["geometry"].to_json()
-            area_polygon = json.loads(area_polygon_geojson)["features"][0]["geometry"][
-                "coordinates"
-            ][0]
+            area_polygon = json.loads(area_polygon_geojson)["features"][0][
+                "geometry"]["coordinates"][0]
             area_polygon = [
                 list(coord_xy)
                 for coord_xy in [
@@ -186,25 +183,29 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
                 from tempfile import NamedTemporaryFile
 
-                with NamedTemporaryFile(suffix=".geojson", delete=False) as temp_file:
+                with NamedTemporaryFile(
+                    suffix=".geojson", delete=False) as temp_file:
                     geojson_path = temp_file.name
                     with open(geojson_path, "w") as file:
                         json.dump(geojson_data, file, indent=2)
 
                 # Optionally display the area polygon if the checkbox is checked
                 if self.areaCheckBox.isChecked() and area_polygon:
-                    self.display_area_polygon(selected_area, area_polygon_geojson)
+                    self.display_area_polygon(
+                        selected_area, area_polygon_geojson)
 
                 # Load the earthquake GeoJSON layer
                 self.load_geojson_layer(geojson_path, "Earthquakes")
 
             else:
-                self.show_error(f"Error: {response.status_code} - {response.text}")
+                self.show_error(
+                    f"Error: {response.status_code} - {response.text}")
         except Exception as e:
             self.show_error(f"An error occurred: {str(e)}")
 
     def load_geojson_layer(self, geojson_path, layer_name="Earthquakes"):
-        """Load a GeoJSON file as a temporary layer in QGIS, including the date range in the name."""
+        """Load a GeoJSON file as a temporary layer in QGIS, including the date
+        range in the name."""
         # Read the GeoJSON file to check for features
         with open(geojson_path, "r") as file:
             geojson_data = json.load(file)
@@ -285,26 +286,9 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         # Refresh the map canvas
         self.iface.mapCanvas().refresh()
 
-    def apply_simple_earthquake_symbology(self, layer):
-        """Apply a simple circle symbology to the earthquake layer."""
-        if not layer or not layer.isValid():
-            return
-
-        # Create a basic symbol with a circle
-        symbol = QgsSymbol.defaultSymbol(layer.geometryType())
-        if symbol is not None:
-            marker_layer = QgsSimpleMarkerSymbolLayer()
-            marker_layer.setColor(QColor("#d73027"))  # Set a default red color
-            marker_layer.setSize(4.0)  # Default size in mm
-            symbol.changeSymbolLayer(0, marker_layer)
-
-        # Apply a single symbol renderer
-        renderer = QgsSingleSymbolRenderer(symbol)
-        layer.setRenderer(renderer)
-        layer.triggerRepaint()
-
     def apply_graduated_earthquake_symbology(self, layer):
-        """Apply graduated symbology to the earthquake layer based on recency."""
+        """Apply graduated symbology to the earthquake layer based on
+        recency."""
         if not layer or not layer.isValid():
             return
 
@@ -341,8 +325,8 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             return
 
         # Determine the time range and convert to numeric values
-        time_field = "time"  # Replace with the actual field name storing the earthquake timestamp
-        numeric_time_field = "__time_numeric"  # Temporary field for numeric time values
+        time_field = "time"
+        numeric_time_field = "__time_numeric"
 
         # Check if the field already exists, if not, add it
         if numeric_time_field not in [field.name() for field in layer.fields()]:
@@ -390,20 +374,28 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             "#b32d1e3e",
         ]  # Gradient colors
         for i in range(num_classes):
-            lower_bound = min_time + i * step
-            upper_bound = min_time + (i + 1) * step
+            low_bound = min_time + i * step
+            upp_bound = min_time + (i + 1) * step
 
-            label = f"{datetime.fromtimestamp(lower_bound).strftime('%Y-%m-%d %H:%M')} - {datetime.fromtimestamp(upper_bound).strftime('%Y-%m-%d %H:%M')}"
+            dt_fmt = '%Y-%m-%d %H:%M'
+
+            label_low = f"{datetime.fromtimestamp(low_bound).strftime(dt_fmt)}"
+            label_upp = f"{datetime.fromtimestamp(upp_bound).strftime(dt_fmt)}"
+
+            label = f"{label_low} - {label_upp}"
             symbol = QgsSymbol.defaultSymbol(layer.geometryType())
             if symbol:
                 symbol.setColor(QColor(colors[i]))
 
                 # Set size scaling using QgsProperty and scale_linear expression
-                size_expression = f'scale_linear( "magnitude", minimum("magnitude"), maximum("magnitude"), 1, 10)'
+                size_expression = ('scale_linear( "magnitude",'
+                                   'minimum("magnitude"),'
+                                   'maximum("magnitude"), 1, 10)')
                 size_property = QgsProperty.fromExpression(size_expression)
                 symbol.setDataDefinedSize(size_property)
 
-                ranges.append(QgsRendererRange(lower_bound, upper_bound, symbol, label))
+                ranges.append(QgsRendererRange(
+                    low_bound, upp_bound, symbol, label))
 
         # Apply graduated symbology
         renderer = QgsGraduatedSymbolRenderer(numeric_time_field, ranges)
@@ -483,7 +475,8 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         self.updating_time_range = False  # Unset the flag
 
     def handle_custom_date_change(self):
-        """Set the timeComboBox to 'Custom range' when date/time is manually changed."""
+        """Set the timeComboBox to 'Custom range' when date/time is manually
+        changed."""
         if self.updating_time_range:
             return  # Skip if the date fields are being updated programmatically
 
@@ -530,8 +523,14 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
                     partial_geojson = {
                         "type": "Feature",
-                        "properties": {"name": area_name, "id": id_area},
-                        "geometry": {"type": "Polygon", "coordinates": [area_polygon]},
+                        "properties": {
+                            "name": area_name,
+                            "id": id_area
+                            },
+                        "geometry": {
+                            "type": "Polygon",
+                            "coordinates": [area_polygon]
+                            },
                     }
 
                     features.append(partial_geojson)
@@ -554,18 +553,21 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     inplace=True,
                     ignore_index=True,
                 )
-                self.feature_collection_gdf.drop(columns=["ends_with_vi"], inplace=True)
+                self.feature_collection_gdf.drop(columns=["ends_with_vi"],
+                                                 inplace=True)
 
                 if not self.feature_collection_gdf.empty:
                     # Populate the combo box
                     for name in self.feature_collection_gdf["name"]:
                         self.areaComboBox.addItem(name)
-                    self.areaComboBox.setCurrentIndex(0)  # Set placeholder as default
+                    # set placeholder as default
+                    self.areaComboBox.setCurrentIndex(0)
                 else:
                     self.show_error("No areas available.")
             else:
                 self.show_error(
-                    f"Failed to fetch areas: {response.status_code} - {response.text}"
+                    f"Failed to fetch areas:"
+                    f" {response.status_code} - {response.text}"
                 )
         except Exception as e:
             self.show_error(f"An error occurred while fetching areas: {str(e)}")
@@ -589,13 +591,14 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 feature_geometry = geojson["features"][0]["geometry"]
             else:
                 raise ValueError(
-                    "Invalid GeoJSON: Expected a FeatureCollection with features."
+                    "Invalid GeoJSON: Expected a FeatureCollection with"
+                    " features."
                 )
 
             # Convert the feature geometry to a shapely object
             geometry = shape(feature_geometry)
 
-            # Ensure the geometry follows the right-hand rule (counter-clockwise for exterior)
+            # Ensure the geometry follows the right-hand rule
             oriented_geometry = orient(geometry, sign=1.0)
 
             # Convert the oriented geometry back to GeoJSON format
@@ -616,7 +619,8 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             from tempfile import NamedTemporaryFile
 
             # Write the corrected GeoJSON to a temporary file
-            with NamedTemporaryFile(suffix=".geojson", delete=False) as temp_file:
+            with NamedTemporaryFile(suffix=".geojson",
+                                    delete=False) as temp_file:
                 geojson_path = temp_file.name
                 with open(geojson_path, "w") as file:
                     json.dump(geojson_data_corrected, file, indent=2)
@@ -631,21 +635,32 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             else:
                 self.show_error("Failed to load area polygon layer.")
         except Exception as e:
-            self.show_error(f"An error occurred while displaying the polygon: {str(e)}")
+            self.show_error(f"An error occurred while displaying the polygon:"
+                            f" {str(e)}")
 
     def apply_area_symbology(self, layer):
+        """Applies a simple symbology to the area polygon
+
+        Args:
+            layer (qgis._core.QgsVectorLayer): polygon of area of interest
+        """
         if not layer or not layer.isValid():
             return
 
         symbol = QgsFillSymbol.createSimple(
             {"color": "#330000FF", "outline_color": "#0000FF"}
         )
+        print(f"layer is type {type(layer)}")
 
         layer.renderer().setSymbol(symbol)
         layer.triggerRepaint()
 
     def handle_area_checkbox(self, state):
-        """Handle areaCheckBox toggle."""
+        """Manages changes to the "Show area" checkbox
+
+        Args:
+            state (int): Set by Qt when the checkbox is ticked/unticked
+        """
         if state == Qt.Checked:
             pass  # don't do anything - this is handled by earthquake function
         else:
@@ -654,6 +669,7 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     QgsProject.instance().removeMapLayer(self.area_layer.id())
             except RuntimeError:
                 pass
+            print(type(state))
             self.area_layer = None
 
     def closeEvent(self, event):
