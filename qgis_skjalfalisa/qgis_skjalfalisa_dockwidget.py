@@ -46,6 +46,14 @@ from qgis.core import (
     QgsFeatureRequest,
 )
 
+# Constants and configuratoins
+BASE_API_URL = "https://vi-api.vedur.is/skjalftalisa/v1"
+AREA_API_ENDPOINT = f"{BASE_API_URL}/areas"
+EARTHQUAKE_API_ENDPOINT = f"{BASE_API_URL}/quakefilter"
+
+DEFAULT_MAGNITUDE = (0, 7)
+DEFAULT_DEPTH = (0, 25)
+
 FORM_CLASS, _ = uic.loadUiType(
     os.path.join(os.path.dirname(__file__),
                  "qgis_skjalfalisa_dockwidget_base.ui")
@@ -117,91 +125,202 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         # Initialize areaCheckBox (optional logic)
         self.areaCheckBox.stateChanged.connect(self.handle_area_checkbox)
 
-    def fetch_and_load_earthquakes(self):
+    def fetch_and_load_earthquakes(self) -> None:
         """Fetch earthquake data and load it into QGIS."""
+        try:
+            # Step 1: Validate inputs
+            self._validate_time_range()
+
+            # Step 2: Construct API payload
+            body = self._construct_earthquake_payload()
+
+            # Step 3: Make API request
+            response = self._fetch_earthquake_data(body)
+
+            # Step 4: Process response
+            geojson_data = self._process_earthquake_response(response)
+
+            if geojson_data is None:
+                return  # Exit early if there are no earthquakes
+
+            # Step 5: Save and load GeoJSON into QGIS
+            self._save_and_load_geojson(geojson_data, "Earthquakes")
+
+            # Step 6: Display area polygon if necessary
+            self._display_area_if_checked()
+
+        except ValueError as e:
+            self.show_error(f"Input error: {str(e)}")
+        except requests.RequestException as e:
+            self.show_error(f"API request failed: {str(e)}")
+        except Exception as e:
+            self.show_error(f"An unexpected error occurred: {str(e)}")
+        
+    def _validate_time_range(self) -> None:
         start_time = self.dateFromTimeEdit.dateTime()
         end_time = self.dateUntilTimeEdit.dateTime()
 
         if start_time >= end_time:
-            self.show_error(
-                "Invalid date range: 'From' time must be earlier than "
-                "'Until' time."
-            )
-            return
+            raise ValueError("'From' time must be earlier than 'Until' time.")
+    
+    def _get_selected_area_polygon(self, selected_area: str) -> list:
+        """Retrieve the polygon geometry of the selected area.
 
-        start_time_str = start_time.toString("yyyy-MM-dd HH:mm:ss")
-        end_time_str = end_time.toString("yyyy-MM-dd HH:mm:ss")
-        size_min = self.magMinSpinBox.value()
-        size_max = self.magMaxSpinBox.value()
-        depth_min = self.depthMinSpinBox.value()
-        depth_max = self.depthMaxSpinBox.value()
+        Args:
+            selected_area (str): The name of the selected area.
 
-        # Include the selected area polygon
-        selected_area = self.areaComboBox.currentText()
-        if selected_area != "Choose area":
-            area_polygon_geojson = self.feature_collection_gdf.loc[
-                self.feature_collection_gdf["name"] == selected_area
-            ]["geometry"].to_json()
-            area_polygon = json.loads(area_polygon_geojson)["features"][0][
-                "geometry"]["coordinates"][0]
-            area_polygon = [
-                list(coord_xy)
-                for coord_xy in [
-                    (coord_yx[1], coord_yx[0]) for coord_yx in area_polygon
-                ]
+        Returns:
+            list: The coordinates of the polygon if found, otherwise None.
+        """
+        try:
+            # Locate the geometry of the selected area in the GeoDataFrame
+            area_geometry = self.feature_collection_gdf.loc[
+                self.feature_collection_gdf["name"] == selected_area, "geometry"
             ]
-        else:
-            area_polygon = None
 
-        body = {
+            if area_geometry.empty:
+                raise ValueError(f"No geometry found for the selected area:"
+                                 f" {selected_area}")
+
+            # Extract the coordinates from the geometry
+            polygon_coordinates = area_geometry.iloc[0].exterior.coords[:]
+
+            # Return as a list of [longitude, latitude] pairs
+            # return [[coord[0], coord[1]] for coord in polygon_coordinates]
+
+            # Return as a list of [latitude, longitude] pairs
+            return [[coord[1], coord[0]] for coord in polygon_coordinates]
+        
+        except Exception as e:
+            raise ValueError(f"Error retrieving polygon for area"
+                             f" '{selected_area}': {str(e)}")
+    
+    def _construct_earthquake_payload(self) -> dict:
+        """Construct the payload for the earthquake API request.
+
+        Returns:
+            dict: A dictionary of keys and values as specified on Vedurstofan's
+            API website.
+        """
+
+        try:
+            start_time = start_time = self.dateFromTimeEdit.dateTime().toString("yyyy-MM-dd HH:mm:ss")
+            end_time = self.dateUntilTimeEdit.dateTime().toString("yyyy-MM-dd HH:mm:ss")
+            size_min = self.magMinSpinBox.value()
+            size_max = self.magMaxSpinBox.value()
+            depth_min = self.depthMinSpinBox.value()
+            depth_max = self.depthMaxSpinBox.value()
+
+            payload = {
             "depth_max": depth_max,
             "depth_min": depth_min,
-            "end_time": end_time_str,
+            "end_time": end_time,
             "event_type": ["qu"],
             "magnitude_preference": ["Mlw"],
             "originating_system": ["SIL picks"],
             "size_max": size_max,
             "size_min": size_min,
-            "start_time": start_time_str,
-        }
+            "start_time": start_time,
+            }
 
-        # Add area if available
-        if area_polygon:
-            body["area"] = area_polygon
+            # Include selected area if specified
+            selected_area = self.areaComboBox.currentText()
+            if selected_area != "Choose area":
+                area_polygon = self._get_selected_area_polygon(selected_area)
+                if area_polygon:
+                    payload["area"] = area_polygon
 
-        try:
-            # Fetch earthquake data
-            response = requests.post(
-                "https://vi-api.vedur.is/skjalftalisa/v1/quakefilter", json=body
-            )
-            if response.status_code == 200:
-                quake_data = response.json()
-                geojson_data = {
-                    "type": "FeatureCollection",
-                    "features": quake_data,
-                }
-
-                from tempfile import NamedTemporaryFile
-
-                with NamedTemporaryFile(
-                    suffix=".geojson", delete=False) as temp_file:
-                    geojson_path = temp_file.name
-                    with open(geojson_path, "w") as file:
-                        json.dump(geojson_data, file, indent=2)
-
-                # Optionally display the area polygon if the checkbox is checked
-                if self.areaCheckBox.isChecked() and area_polygon:
-                    self.display_area_polygon(
-                        selected_area, area_polygon_geojson)
-
-                # Load the earthquake GeoJSON layer
-                self.load_geojson_layer(geojson_path, "Earthquakes")
-
-            else:
-                self.show_error(
-                    f"Error: {response.status_code} - {response.text}")
+            return payload
         except Exception as e:
-            self.show_error(f"An error occurred: {str(e)}")
+            raise ValueError(f"Failed to construct earthquake payload: {str(e)}")
+
+    def _fetch_earthquake_data(self, payload: dict) -> requests.Response:
+        """Send a POST request to fetch earthquake data
+
+        Args:
+            payload (dict): A dictionary of keys and values as specified on
+            Vedurstofan's API website.
+
+        Returns:
+            requests.Response: a POST response containing JSON earthquake data
+        """
+        try:
+            response = requests.post(EARTHQUAKE_API_ENDPOINT, json=payload)
+            response.raise_for_status()  # Raises an HTTPError for bad responses
+            return response
+        except requests.RequestException as e:
+            raise requests.RequestException(f"HTTP request failed: {str(e)}")
+    
+    def _process_earthquake_response(self, response: requests.Response) -> dict:
+        """Process the API response into a correctly formatted GeoJSON and
+        return it.
+
+        Args:
+            response (requests.Response): a POST response containing JSON
+            earthquake data
+
+        Returns:
+            dict: dictionary of GeoJSON-like keys and values
+        """
+        try:
+            quake_data = response.json()
+            # check if the response contains no features
+            if not quake_data:
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "No Earthquakes Found",
+                    "No earthquakes were found with the selected criteria."
+                )
+                return None
+            
+            return {
+                "type": "FeatureCollection",
+                "features": quake_data,
+            }
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Failed to parse API response as JSON: {str(e)}")
+        except KeyError as e:
+            raise ValueError(f"Unexpected API response format: Missing key"
+                             f" {str(e)}")
+    
+    def _save_and_load_geojson(self,
+                               geojson_data: dict,
+                               layer_name: str) -> None:
+        """Save GeoJSON to a temporary file and load it into QGIS.
+
+        Args:
+            geojson_data (dict): dictionary of GeoJSON-like keys and values
+            layer_name (str): layer name
+        """
+        try:
+            from tempfile import NamedTemporaryFile
+
+            with NamedTemporaryFile(suffix=".geojson",
+                                    delete=False) as temp_file:
+                geojson_path = temp_file.name
+                with open(geojson_path, "w") as file:
+                    json.dump(geojson_data, file, indent=2)
+
+            # Load the GeoJSON layer into QGIS
+            self.load_geojson_layer(geojson_path, layer_name)
+        except (OSError, IOError) as e:
+            raise IOError(f"Failed to save or load GeoJSON data: {str(e)}")
+    
+    def _display_area_if_checked(self) -> None:
+        """Display a polygon of the area of interest if the checkbox is ticked.
+        """
+        try:
+            if self.areaCheckBox.isChecked():
+                selected_area = self.areaComboBox.currentText()
+                if selected_area != "Choose area":
+                    geometry_str = self.feature_collection_gdf.loc[
+                        self.feature_collection_gdf["name"] == selected_area
+                    ]["geometry"].to_json()
+                    self.display_area_polygon(selected_area, geometry_str)
+        except KeyError:
+            raise ValueError(f"Failed to find geometry for area:"
+                             f" {selected_area}")
+
 
     def load_geojson_layer(self, geojson_path, layer_name="Earthquakes"):
         """Load a GeoJSON file as a temporary layer in QGIS, including the date
@@ -356,11 +475,15 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         # Create ranges based on recency
         total_seconds = max_time - min_time
+
+        # datetime format for labels
+        dt_fmt = '%Y-%m-%d %H:%M'
         
         # Handle case where all timestamps are the same
         if min_time == max_time:
             single_category_color = "#b32d1e3e"  # Fallback color
-            label = f"All events at {datetime.fromtimestamp(min_time).strftime('%Y-%m-%d %H:%M')}"
+            label = (f"All events at"
+                     f" {datetime.fromtimestamp(min_time).strftime(dt_fmt)}")
             symbol = QgsSymbol.defaultSymbol(layer.geometryType())
             if symbol:
                 symbol.setColor(QColor(single_category_color))
@@ -393,8 +516,6 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         for i in range(num_classes):
             low_bound = min_time + i * step
             upp_bound = min_time + (i + 1) * step
-
-            dt_fmt = '%Y-%m-%d %H:%M'
 
             label_low = f"{datetime.fromtimestamp(low_bound).strftime(dt_fmt)}"
             label_upp = f"{datetime.fromtimestamp(upp_bound).strftime(dt_fmt)}"
@@ -667,7 +788,6 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         symbol = QgsFillSymbol.createSimple(
             {"color": "#330000FF", "outline_color": "#0000FF"}
         )
-        print(f"layer is type {type(layer)}")
 
         layer.renderer().setSymbol(symbol)
         layer.triggerRepaint()
@@ -686,7 +806,6 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     QgsProject.instance().removeMapLayer(self.area_layer.id())
             except RuntimeError:
                 pass
-            print(type(state))
             self.area_layer = None
 
     def closeEvent(self, event):
