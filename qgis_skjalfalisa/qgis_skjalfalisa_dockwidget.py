@@ -383,11 +383,11 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         ranges = []
         colors = [
-            "#b3d73027",
-            "#b3fc8d59",
-            "#b3fee090",
-            "#b391bfdb",
-            "#b34575b4",
+            "#b3edd1cb",
+            "#b3d499a7",
+            "#b3aa688f",
+            "#b36e4071",
+            "#b32d1e3e",
         ]  # Gradient colors
         for i in range(num_classes):
             lower_bound = min_time + i * step
@@ -410,7 +410,7 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         renderer.setMode(QgsGraduatedSymbolRenderer.EqualInterval)
         renderer.setOrderBy(
             QgsFeatureRequest.OrderBy(
-                [QgsFeatureRequest.OrderByClause("__time_numeric", False)]
+                [QgsFeatureRequest.OrderByClause("__time_numeric", True)]
             )
         )
         renderer.setOrderByEnabled(True)
