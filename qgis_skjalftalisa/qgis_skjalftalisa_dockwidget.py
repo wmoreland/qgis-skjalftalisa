@@ -85,25 +85,33 @@ def log_error(message: str) -> None:
     logger = logging.getLogger(__name__)
     logger.error(message)
 
+
 FORM_CLASS, _ = uic.loadUiType(
-    os.path.join(os.path.dirname(__file__),
-                 "qgis_skjalftalisa_dockwidget_base.ui")
+    os.path.join(
+        os.path.dirname(__file__), "qgis_skjalftalisa_dockwidget_base.ui"
+    )
 )
+
 
 class InputValidationError(Exception):
     """Raised when user input is invalid."""
+
     pass
+
 
 class ApiRequestError(Exception):
     """Riased when the API request fails."""
+
     pass
+
 
 class GeoJsonProcessingError(Exception):
     """Raised when processing GeoJSON data fails."""
+
     pass
 
-class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
+class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     closingPlugin = pyqtSignal()
 
     def __init__(self, iface, parent=None):
@@ -149,9 +157,11 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         # Connect date/time edits to a custom range handler
         self.dateFromTimeEdit.dateTimeChanged.connect(
-            self.handle_custom_date_change)
+            self.handle_custom_date_change
+        )
         self.dateUntilTimeEdit.dateTimeChanged.connect(
-            self.handle_custom_date_change)
+            self.handle_custom_date_change
+        )
 
         # Initialize variables
         self.earthquake_layer = None  # earthquake points
@@ -166,7 +176,7 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         # Initialize areaCheckBox (optional logic)
         self.areaCheckBox.stateChanged.connect(self.handle_area_checkbox)
-    
+
     def show_error(self, message: str, title: str = "Error") -> None:
         """Display an error message in a QMessageBox.
 
@@ -194,15 +204,16 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             pass  # Already displayed to the user
         except ApiRequestError as e:
             log_error(f"API error: {str(e)}")
-            self.show_error(f"Could not retrieve data from the earthquake API:"
-                            f" {str(e)}")
+            self.show_error(
+                f"Could not retrieve data from the earthquake API:" f" {str(e)}"
+            )
         except GeoJsonProcessingError as e:
             log_error(f"GeoJSON processing error: {str(e)}")
             self.show_error(f"Error processing earthquake data: {str(e)}")
         except Exception as e:
             log_error(f"Unexpected error: {str(e)}")
             self.show_error(f"An unexpected error occurred: {str(e)}")
-        
+
     def _validate_user_input(self) -> None:
         """Validate start and end times, magnitudes, and depths.
 
@@ -219,16 +230,20 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             depth_max = self.depthMaxSpinBox.value()
 
             if start_time >= end_time:
-                raise InputValidationError("'From' time must be earlier than"
-                                        " 'Until' time.")
+                raise InputValidationError(
+                    "'From' time must be earlier than" " 'Until' time."
+                )
 
             # Validate magnitude and depth ranges
             if size_min < 0 or size_max > 10 or size_min > size_max:
-                raise InputValidationError("Magnitude values must be between 0"
-                                           "and 10, and min <= max.")
+                raise InputValidationError(
+                    "Magnitude values must be between 0"
+                    "and 10, and min <= max."
+                )
             if depth_min < 0 or depth_max > 700 or depth_min > depth_max:
-                raise InputValidationError("Depth values must be between 0 and"
-                                           "700, and min <= max.")
+                raise InputValidationError(
+                    "Depth values must be between 0 and" "700, and min <= max."
+                )
 
         except InputValidationError as e:
             self.show_error(str(e), "Input Validation Error")
@@ -237,7 +252,7 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             log_error(f"Unexpected error: {str(e)}")
             self.show_error(f"An unexpected error occurred: {str(e)}")
             raise
-    
+
     def _get_selected_area_polygon(self, selected_area: str) -> list:
         """Retrieve the polygon geometry of the selected area.
 
@@ -246,7 +261,7 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         Returns:
             list: The coordinates of the polygon if found, otherwise None.
-        
+
         Raises:
             GeoJsonProcessingError: If the selected area's polygon cannot be
             retrieved or processed.
@@ -260,14 +275,14 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             if area_geometry.empty:
                 raise GeoJsonProcessingError(
                     f"No geometry found for the selected area: {selected_area}"
-                    )
+                )
 
             # Extract the coordinates from the geometry
             polygon_coordinates = area_geometry.iloc[0].exterior.coords[:]
 
             # Return as a list of [latitude, longitude] pairs
             return [[coord[1], coord[0]] for coord in polygon_coordinates]
-        
+
         except KeyError as e:
             raise GeoJsonProcessingError(
                 f"Error retrieving polygon: Missing expected key in "
@@ -283,14 +298,14 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 f"Unexpected error while retrieving polygon for area "
                 f"'{selected_area}': {str(e)}"
             ) from e
-    
+
     def _construct_earthquake_payload(self) -> dict:
         """Construct the payload for the earthquake API request.
 
         Returns:
             dict: A dictionary of keys and values as specified on Vedurstofan's
             API website.
-        
+
         Raises:
             InputValidationError: If input values (e.g., magnitude, depth) are
             invalid.
@@ -303,7 +318,7 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             dt_fmt = "yyyy-MM-dd HH:mm:ss"
             start_time = self.dateFromTimeEdit.dateTime().toString(dt_fmt)
             end_time = self.dateUntilTimeEdit.dateTime().toString(dt_fmt)
-            
+
             # Retrieve magnitude and depth values
             size_min = self.magMinSpinBox.value()
             size_max = self.magMaxSpinBox.value()
@@ -313,15 +328,15 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             # Validate magnitude and depth ranges
 
             payload = {
-            "depth_max": depth_max,
-            "depth_min": depth_min,
-            "end_time": end_time,
-            "event_type": ["qu"],
-            "magnitude_preference": ["Mlw"],
-            "originating_system": ["SIL picks"],
-            "size_max": size_max,
-            "size_min": size_min,
-            "start_time": start_time,
+                "depth_max": depth_max,
+                "depth_min": depth_min,
+                "end_time": end_time,
+                "event_type": ["qu"],
+                "magnitude_preference": ["Mlw"],
+                "originating_system": ["SIL picks"],
+                "size_max": size_max,
+                "size_min": size_min,
+                "start_time": start_time,
             }
 
             # Include selected area if specified
@@ -329,7 +344,8 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             if selected_area != "Choose area":
                 try:
                     area_polygon = self._get_selected_area_polygon(
-                        selected_area)
+                        selected_area
+                    )
                     if area_polygon:
                         payload["area"] = area_polygon
                 except GeoJsonProcessingError as e:
@@ -339,7 +355,7 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     ) from e
 
             return payload
-        
+
         except InputValidationError as e:
             self.show_error(str(e), "Input Validation Error")
             raise
@@ -369,31 +385,38 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         try:
             # Send the POST request
             response = requests.post(EARTHQUAKE_API_ENDPOINT, json=payload)
-            response.raise_for_status()  # Raises an HTTPError for bad responses (4xx, 5xx)
+            # Raises an HTTPError for bad responses (4xx, 5xx)
+            response.raise_for_status()
 
             return response
 
         except requests.HTTPError as e:
             # Handle specific HTTP errors
             error_message = (
-                f"HTTP error occurred: {response.status_code} - {response.reason}. "
-                f"Details: {response.text}"
+                f"HTTP error occurred: {response.status_code} - "
+                f"{response.reason}. Details: {response.text}"
             )
             log_error(error_message)
             raise ApiRequestError(error_message) from e
 
         except requests.RequestException as e:
             # Handle general request issues
-            error_message = f"Failed to fetch earthquake data due to a network or connection error: {str(e)}"
+            error_message = (
+                f"Failed to fetch earthquake data due to a network or"
+                f" connection error: {str(e)}"
+            )
             log_error(error_message)
             raise ApiRequestError(error_message) from e
 
         except Exception as e:
             # Handle unexpected exceptions
-            error_message = f"An unexpected error occurred while fetching earthquake data: {str(e)}"
+            error_message = (
+                f"An unexpected error occurred while fetching earthquake data:"
+                f" {str(e)}"
+            )
             log_error(error_message)
             raise ApiRequestError(error_message) from e
-    
+
     def _process_earthquake_response(self, response: requests.Response) -> dict:
         """Process the API response into a correctly formatted GeoJSON and
         return it.
@@ -418,15 +441,15 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 QtWidgets.QMessageBox.information(
                     self,
                     "No Earthquakes Found",
-                    "No earthquakes were found with the selected criteria."
+                    "No earthquakes were found with the selected criteria.",
                 )
                 return None
-            
+
             return {
                 "type": "FeatureCollection",
                 "features": quake_data,
             }
-        
+
         except json.JSONDecodeError as e:
             # Handle JSON parsing errors
             error_message = f"Failed to parse API response as JSON: {str(e)}"
@@ -450,16 +473,16 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             )
             log_error(error_message)
             raise GeoJsonProcessingError(error_message) from e
-    
-    def _save_and_load_geojson(self,
-                               geojson_data: dict,
-                               layer_name: str) -> None:
+
+    def _save_and_load_geojson(
+        self, geojson_data: dict, layer_name: str
+    ) -> None:
         """Save GeoJSON to a temporary file and load it into QGIS.
 
         Args:
             geojson_data (dict): dictionary of GeoJSON-like keys and values
             layer_name (str): layer name
-        
+
         Raises:
             GeoJsonProcessingError: If saving the GeoJSON to a file fails or if
             the data is invalid.
@@ -467,8 +490,9 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         try:
             from tempfile import NamedTemporaryFile
 
-            with NamedTemporaryFile(suffix=".geojson",
-                                    delete=False) as temp_file:
+            with NamedTemporaryFile(
+                suffix=".geojson", delete=False
+            ) as temp_file:
                 geojson_path = temp_file.name
                 with open(geojson_path, "w") as file:
                     json.dump(geojson_data, file, indent=2)
@@ -484,11 +508,13 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         except Exception as e:
             # Catch all other unexpected errors
-            error_message = (f"An unexpected error occurred while saving or"
-                             f" loading GeoJSON: {str(e)}")
+            error_message = (
+                f"An unexpected error occurred while saving or"
+                f" loading GeoJSON: {str(e)}"
+            )
             log_error(error_message)
             raise GeoJsonProcessingError(error_message) from e
-    
+
     def _display_area_if_checked(self) -> None:
         """Display a polygon of the area of interest if the checkbox is ticked.
 
@@ -513,101 +539,163 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         except KeyError as e:
             # Handle missing geometry for the selected area
-            error_message = (f"Failed to find geometry for area "
-                             f"'{selected_area}': {str(e)}")
+            error_message = (
+                f"Failed to find geometry for area "
+                f"'{selected_area}': {str(e)}"
+            )
             log_error(error_message)
             raise GeoJsonProcessingError(error_message) from e
 
         except Exception as e:
             # Catch all other unexpected errors
-            error_message = (f"An unexpected error occurred while displaying "
-                             f"the area polygon: {str(e)}")
+            error_message = (
+                f"An unexpected error occurred while displaying "
+                f"the area polygon: {str(e)}"
+            )
             log_error(error_message)
             raise GeoJsonProcessingError(error_message) from e
 
-
-    def load_geojson_layer(self, geojson_path, layer_name="Earthquakes"):
+    def load_geojson_layer(
+        self, geojson_path: str, layer_name: str = "Earthquakes"
+    ) -> None:
         """Load a GeoJSON file as a temporary layer in QGIS, including the date
-        range in the name."""
-        # Read the GeoJSON file to check for features
-        with open(geojson_path, "r") as file:
-            geojson_data = json.load(file)
+        range in the name.
 
-        # Check if there are features in the GeoJSON
-        if not geojson_data.get("features"):
-            QtWidgets.QMessageBox.information(
-                self,
-                "No Earthquakes Found",
-                "No earthquakes were found with the current settings.",
-            )
-            return
+        Args:
+            geojson_path (str): Path to the GeoJSON file.
+            layer_name (str): The name of the layer to be displayed.
 
-        # Safely check and remove the layer
+        Raises:
+            GeoJsonProcessingError: If the GeoJSON file is invalid or contains
+            no features.
+        """
         try:
-            if self.earthquake_layer:
-                QgsProject.instance().removeMapLayer(self.earthquake_layer.id())
-        except RuntimeError:
-            # Layer was already deleted, so just clear the reference
-            pass
+            self._remove_layers()
 
-        # Get the date range from the widgets
-        start_date = self.dateFromTimeEdit.date().toString("yyyy-MM-dd")
-        end_date = self.dateUntilTimeEdit.date().toString("yyyy-MM-dd")
+            # Get the date range from the widgets
+            start_date = self.dateFromTimeEdit.date().toString("yyyy-MM-dd")
+            end_date = self.dateUntilTimeEdit.date().toString("yyyy-MM-dd")
 
-        # Load the GeoJSON file as a vector layer
-        layer_name = f"{layer_name} {start_date} to {end_date}"
-        layer = QgsVectorLayer(geojson_path, layer_name, "ogr")
-        if layer.isValid():
-            # self.apply_simple_earthquake_symbology(layer)
-            self.apply_graduated_earthquake_symbology(layer)
-            QgsProject.instance().addMapLayer(layer)
-            self.earthquake_layer = layer  # Save the layer reference
-        else:
-            self.show_error("Failed to load earthquakes layer.")
+            # Construct the new layer name with the date range
+            layer_name = f"{layer_name} {start_date} to {end_date}"
+            layer = QgsVectorLayer(geojson_path, layer_name, "ogr")
+
+            if layer.isValid():
+                # Apply symbology and add the layer to QGIS
+                self.apply_graduated_earthquake_symbology(layer)
+                QgsProject.instance().addMapLayer(layer)
+                self.earthquake_layer = layer  # Save the layer reference
+            else:
+                error_message = "Failed to load earthquakes layer."
+                self.show_error(error_message)
+                raise GeoJsonProcessingError(error_message)
+
+        except (OSError, IOError) as e:
+            error_message = f"Error reading GeoJSON file: {str(e)}"
+            log_error(error_message)
+            raise GeoJsonProcessingError(error_message) from e
+
+        except json.JSONDecodeError as e:
+            error_message = f"Failed to parse GeoJSON file: {str(e)}"
+            log_error(error_message)
+            raise GeoJsonProcessingError(error_message) from e
+
+        except Exception as e:
+            error_message = (
+                f"An unexpected error occurred while loading the GeoJSON layer:"
+                f" {str(e)}"
+            )
+            log_error(error_message)
+            raise GeoJsonProcessingError(error_message) from e
 
     def reset_values(self):
         """Reset all values in the widgets and remove the created layer."""
-        # Remove "Custom range" from the combo box if it exists
-        custom_range_index = self.timeComboBox.findText("Custom range")
-        if custom_range_index != -1:
-            self.timeComboBox.removeItem(custom_range_index)
-
-        # Reset the timeComboBox to the default placeholder
-        self.timeComboBox.setCurrentIndex(0)
-
-        # Reset the areaComboBox to the default placeholder
-        self.areaComboBox.setCurrentIndex(0)
-
-        # Reset date/time edits
-        self.update_time_range()  # Reset dateFromTimeEdit and dateUntilTimeEdit
-
-        # Reset spin boxes to their default values
-        self.magMinSpinBox.setValue(0)
-        self.magMaxSpinBox.setValue(7)
-        self.depthMinSpinBox.setValue(0)
-        self.depthMaxSpinBox.setValue(25)
-
-        # Safely check and remove the layer
         try:
-            if self.earthquake_layer:
-                QgsProject.instance().removeMapLayer(self.earthquake_layer.id())
-        except RuntimeError:
-            # Layer was already deleted, so just clear the reference
-            pass
+            # Remove "Custom range" from the combo box if it exists
+            custom_range_index = self.timeComboBox.findText("Custom range")
+            if custom_range_index != -1:
+                self.timeComboBox.removeItem(custom_range_index)
 
-        # Safely remove the area polygon layer
+            # Reset the timeComboBox to the default placeholder
+            self.timeComboBox.setCurrentIndex(0)
+
+            # Reset the areaComboBox to the default placeholder
+            self.areaComboBox.setCurrentIndex(0)
+
+            # Untick the checkbox
+            self.areaCheckBox.setCheckState(Qt.Unchecked)
+
+            # Reset date/time edits
+            self.update_time_range()  # Reset dateFromTimeEdit and dateUntilTimeEdit
+
+            # Reset spin boxes to their default values
+            self.magMinSpinBox.setValue(0)
+            self.magMaxSpinBox.setValue(7)
+            self.depthMinSpinBox.setValue(0)
+            self.depthMaxSpinBox.setValue(25)
+
+            # Remove layers
+            self._remove_layers()
+
+            # Refresh the map canvas
+            self.iface.mapCanvas().refresh()
+
+        except Exception as e:
+            error_message = (
+                f"An unexpected error occurred during reset: {str(e)}"
+            )
+            log_error(error_message)
+            raise GeoJsonProcessingError(error_message) from e
+
+    def _remove_layers(
+        self, earthquakes: bool = True, areas: bool = True
+    ) -> None:
+        """Helper function to remove existing layers for earthquakes and area.
+
+        Raises:
+            GeoJsonProcessingError: If something unexpected happens.
+        """
         try:
-            if self.area_layer:
-                QgsProject.instance().removeMapLayer(self.area_layer.id())
-        except RuntimeError:
+            if earthquakes:
+                # Safely check and remove the earthquake layer
+                if self.earthquake_layer and self._is_layer_valid(
+                    self.earthquake_layer
+                ):
+                    QgsProject.instance().removeMapLayer(
+                        self.earthquake_layer.id()
+                    )
+                self.earthquake_layer = None
+
+            if areas:
+                # Safely check and remove the area polygon layer
+                if self.area_layer and self._is_layer_valid(self.area_layer):
+                    QgsProject.instance().removeMapLayer(self.area_layer.id())
+                self.area_layer = None
+
+        except RuntimeError as e:
+            # Probably already been removed manually
             pass
-        self.area_layer = None
+            # log_error(f"Error removing layer: {str(e)}")
+        except Exception as e:
+            error_message = (
+                f"An unexpected error occurred while removing layers: {str(e)}"
+            )
+            log_error(error_message)
+            raise GeoJsonProcessingError(error_message) from e
 
-        # Clear the layer reference
-        self.earthquake_layer = None
+    def _is_layer_valid(self, layer):
+        """Check if a QgsVectorLayer is valid and still part of the project.
 
-        # Refresh the map canvas
-        self.iface.mapCanvas().refresh()
+        Args:
+            layer (QgsVectorLayer): The layer to validate.
+
+        Returns:
+            bool: True if the layer is valid and exists in the project, False otherwise.
+        """
+        return (
+            layer.isValid()
+            and QgsProject.instance().mapLayer(layer.id()) is not None
+        )
 
     def apply_graduated_earthquake_symbology(self, layer):
         """Apply graduated symbology to the earthquake layer based on
@@ -681,21 +769,25 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         total_seconds = max_time - min_time
 
         # datetime format for labels
-        dt_fmt = '%Y-%m-%d %H:%M'
-        
+        dt_fmt = "%Y-%m-%d %H:%M"
+
         # Handle case where all timestamps are the same
         if min_time == max_time:
             single_category_color = "#b32d1e3e"  # Fallback color
-            label = (f"All events at"
-                     f" {datetime.fromtimestamp(min_time).strftime(dt_fmt)}")
+            label = (
+                f"All events at"
+                f" {datetime.fromtimestamp(min_time).strftime(dt_fmt)}"
+            )
             symbol = QgsSymbol.defaultSymbol(layer.geometryType())
             if symbol:
                 symbol.setColor(QColor(single_category_color))
 
                 # Set size scaling using magnitude
-                size_expression = ('scale_linear( "magnitude",'
-                                'minimum("magnitude"),'
-                                'maximum("magnitude"), 1, 10)')
+                size_expression = (
+                    'scale_linear( "magnitude",'
+                    'minimum("magnitude"),'
+                    'maximum("magnitude"), 1, 10)'
+                )
                 size_property = QgsProperty.fromExpression(size_expression)
                 symbol.setDataDefinedSize(size_property)
 
@@ -730,14 +822,17 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 symbol.setColor(QColor(colors[i]))
 
                 # Set size scaling using QgsProperty and scale_linear expression
-                size_expression = ('scale_linear( "magnitude",'
-                                   'minimum("magnitude"),'
-                                   'maximum("magnitude"), 1, 10)')
+                size_expression = (
+                    'scale_linear( "magnitude",'
+                    'minimum("magnitude"),'
+                    'maximum("magnitude"), 1, 10)'
+                )
                 size_property = QgsProperty.fromExpression(size_expression)
                 symbol.setDataDefinedSize(size_property)
 
-                ranges.append(QgsRendererRange(
-                    low_bound, upp_bound, symbol, label))
+                ranges.append(
+                    QgsRendererRange(low_bound, upp_bound, symbol, label)
+                )
 
         # Apply graduated symbology
         renderer = QgsGraduatedSymbolRenderer(numeric_time_field, ranges)
@@ -861,14 +956,11 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
                     partial_geojson = {
                         "type": "Feature",
-                        "properties": {
-                            "name": area_name,
-                            "id": id_area
-                            },
+                        "properties": {"name": area_name, "id": id_area},
                         "geometry": {
                             "type": "Polygon",
-                            "coordinates": [area_polygon]
-                            },
+                            "coordinates": [area_polygon],
+                        },
                     }
 
                     features.append(partial_geojson)
@@ -891,8 +983,9 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                     inplace=True,
                     ignore_index=True,
                 )
-                self.feature_collection_gdf.drop(columns=["ends_with_vi"],
-                                                 inplace=True)
+                self.feature_collection_gdf.drop(
+                    columns=["ends_with_vi"], inplace=True
+                )
 
                 if not self.feature_collection_gdf.empty:
                     # Populate the combo box
@@ -913,13 +1006,7 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def display_area_polygon(self, selected_area, geometry_str):
         """Display the selected area's polygon as a separate layer."""
         try:
-            # Safely check and remove the layer
-            try:
-                if self.area_layer:
-                    QgsProject.instance().removeMapLayer(self.area_layer.id())
-            except RuntimeError:
-                # Layer was already deleted, so just clear the reference
-                pass
+            self._remove_layers(earthquakes=False)
 
             # Parse the geometry string into a dictionary
             geojson = json.loads(geometry_str)
@@ -957,8 +1044,9 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             from tempfile import NamedTemporaryFile
 
             # Write the corrected GeoJSON to a temporary file
-            with NamedTemporaryFile(suffix=".geojson",
-                                    delete=False) as temp_file:
+            with NamedTemporaryFile(
+                suffix=".geojson", delete=False
+            ) as temp_file:
                 geojson_path = temp_file.name
                 with open(geojson_path, "w") as file:
                     json.dump(geojson_data_corrected, file, indent=2)
@@ -973,8 +1061,9 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             else:
                 self.show_error("Failed to load area polygon layer.")
         except Exception as e:
-            self.show_error(f"An error occurred while displaying the polygon:"
-                            f" {str(e)}")
+            self.show_error(
+                f"An error occurred while displaying the polygon:" f" {str(e)}"
+            )
 
     def apply_area_symbology(self, layer):
         """Applies a simple symbology to the area polygon
