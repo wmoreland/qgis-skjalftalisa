@@ -1,5 +1,5 @@
 <RCC>
-    <qresource prefix="/plugins/qgis_skjalfalisa" >
+    <qresource prefix="/plugins/qgis_skjalftalisa" >
         <file>icon.png</file>
     </qresource>
 </RCC>

@@ -28,7 +28,7 @@ from qgis.PyQt.QtWidgets import QAction
 from .resources import *
 
 # Import the code for the DockWidget
-from .qgis_skjalfalisa_dockwidget import QgisSkjalftalisaDockWidget
+from .qgis_skjalftalisa_dockwidget import QgisSkjalftalisaDockWidget
 import os.path
 
 
@@ -167,7 +167,7 @@ class QgisSkjalftalisa:
     def initGui(self):
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
 
-        icon_path = ':/plugins/qgis_skjalfalisa/icon.png'
+        icon_path = ':/plugins/qgis_skjalftalisa/icon.png'
         self.add_action(
             icon_path,
             text=self.tr(u'Open interface'),

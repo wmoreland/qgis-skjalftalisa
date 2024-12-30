@@ -24,8 +24,10 @@
 
 import os
 import json
+import logging
 import requests
 import geopandas as gpd
+
 from datetime import datetime
 
 from shapely.ops import orient
@@ -54,11 +56,51 @@ EARTHQUAKE_API_ENDPOINT = f"{BASE_API_URL}/quakefilter"
 DEFAULT_MAGNITUDE = (0, 7)
 DEFAULT_DEPTH = (0, 25)
 
-FORM_CLASS, _ = uic.loadUiType(
-    os.path.join(os.path.dirname(__file__),
-                 "qgis_skjalfalisa_dockwidget_base.ui")
+# Get the root logger
+logger = logging.getLogger()
+
+# Clear any existing handlers to prevent duplication
+if logger.hasHandlers():
+    logger.handlers.clear()
+
+# Set up logging
+logging_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+logging.basicConfig(
+    level=logging.ERROR,
+    filename="qgis_skjalftalisa.log",
+    filemode="w",
+    format=logging_format,
 )
 
+# Create and add a console handler
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.ERROR)
+formatter = logging.Formatter(logging_format)
+console_handler.setFormatter(formatter)
+
+logger.addHandler(console_handler)
+
+
+def log_error(message: str) -> None:
+    logger = logging.getLogger(__name__)
+    logger.error(message)
+
+FORM_CLASS, _ = uic.loadUiType(
+    os.path.join(os.path.dirname(__file__),
+                 "qgis_skjalftalisa_dockwidget_base.ui")
+)
+
+class InputValidationError(Exception):
+    """Raised when user input is invalid."""
+    pass
+
+class ApiRequestError(Exception):
+    """Riased when the API request fails."""
+    pass
+
+class GeoJsonProcessingError(Exception):
+    """Raised when processing GeoJSON data fails."""
+    pass
 
 class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
@@ -124,36 +166,41 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         # Initialize areaCheckBox (optional logic)
         self.areaCheckBox.stateChanged.connect(self.handle_area_checkbox)
+    
+    def show_error(self, message: str, title: str = "Error") -> None:
+        """Display an error message in a QMessageBox.
+
+        Args:
+            message (str): The error message to display.
+            title (str): The title of the message box (default: "Error")
+        """
+        QtWidgets.QMessageBox.critical(self, "Error", message)
 
     def fetch_and_load_earthquakes(self) -> None:
         """Fetch earthquake data and load it into QGIS."""
         try:
-            # Step 1: Validate inputs
             self._validate_time_range()
-
-            # Step 2: Construct API payload
-            body = self._construct_earthquake_payload()
-
-            # Step 3: Make API request
-            response = self._fetch_earthquake_data(body)
-
-            # Step 4: Process response
+            payload = self._construct_earthquake_payload()
+            response = self._fetch_earthquake_data(payload)
             geojson_data = self._process_earthquake_response(response)
 
             if geojson_data is None:
                 return  # Exit early if there are no earthquakes
 
-            # Step 5: Save and load GeoJSON into QGIS
             self._save_and_load_geojson(geojson_data, "Earthquakes")
-
-            # Step 6: Display area polygon if necessary
             self._display_area_if_checked()
 
-        except ValueError as e:
-            self.show_error(f"Input error: {str(e)}")
-        except requests.RequestException as e:
-            self.show_error(f"API request failed: {str(e)}")
+        except InputValidationError:
+            pass  # Already displayed to the user
+        except ApiRequestError as e:
+            log_error(f"API error: {str(e)}")
+            self.show_error(f"Could not retrieve data from the earthquake API:"
+                            f" {str(e)}")
+        except GeoJsonProcessingError as e:
+            log_error(f"GeoJSON processing error: {str(e)}")
+            self.show_error(f"Error processing earthquake data: {str(e)}")
         except Exception as e:
+            log_error(f"Unexpected error: {str(e)}")
             self.show_error(f"An unexpected error occurred: {str(e)}")
         
     def _validate_time_range(self) -> None:
@@ -546,10 +593,6 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         renderer.setOrderByEnabled(True)
         layer.setRenderer(renderer)
         layer.triggerRepaint()
-
-    def show_error(self, message):
-        """Show an error message to the user."""
-        QtWidgets.QMessageBox.critical(self, "Error", message)
 
     def update_time_range(self):
         """Update the date/time range based on the timeComboBox selection."""

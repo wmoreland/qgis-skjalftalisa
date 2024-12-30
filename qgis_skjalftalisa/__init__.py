@@ -32,5 +32,5 @@ def classFactory(iface):  # pylint: disable=invalid-name
     :type iface: QgsInterface
     """
     #
-    from .qgis_skjalfalisa import QgisSkjalftalisa
+    from .qgis_skjalftalisa import QgisSkjalftalisa
     return QgisSkjalftalisa(iface)

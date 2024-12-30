@@ -1,7 +1,7 @@
 Plugin Builder Results
 
 Your plugin QgisSkjalftalisa was created in:
-    C:/Users/williammo/OneDrive - Veðurstofa Íslands/Documents/GitHub/qgis-skjalftalisa\qgis_skjalfalisa
+    C:/Users/williammo/OneDrive - Veðurstofa Íslands/Documents/GitHub/qgis-skjalftalisa\qgis_skjalftalisa
 
 Your QGIS plugin directory is located at:
     C:/Users/williammo/AppData/Roaming/QGIS/QGIS3/profiles/default/python/plugins
@@ -17,7 +17,7 @@ What's Next:
 
   * Test the plugin by enabling it in the QGIS plugin manager
 
-  * Customize it by editing the implementation file: ``qgis_skjalfalisa.py``
+  * Customize it by editing the implementation file: ``qgis_skjalftalisa.py``
 
   * Create your own custom icon, replacing the default icon.png
 

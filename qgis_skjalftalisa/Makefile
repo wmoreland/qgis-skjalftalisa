@@ -38,15 +38,15 @@ LOCALES =
 # translation
 SOURCES = \
 	__init__.py \
-	qgis_skjalfalisa.py qgis_skjalfalisa_dockwidget.py
+	qgis_skjalftalisa.py qgis_skjalftalisa_dockwidget.py
 
-PLUGINNAME = qgis_skjalfalisa
+PLUGINNAME = qgis_skjalftalisa
 
 PY_FILES = \
 	__init__.py \
-	qgis_skjalfalisa.py qgis_skjalfalisa_dockwidget.py
+	qgis_skjalftalisa.py qgis_skjalftalisa_dockwidget.py
 
-UI_FILES = qgis_skjalfalisa_dockwidget_base.ui
+UI_FILES = qgis_skjalftalisa_dockwidget_base.ui
 
 EXTRAS = metadata.txt icon.png
 

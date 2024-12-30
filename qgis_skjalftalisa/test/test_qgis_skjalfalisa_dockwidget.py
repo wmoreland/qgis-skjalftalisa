@@ -16,7 +16,7 @@ import unittest
 
 from qgis.PyQt.QtGui import QDockWidget
 
-from qgis_skjalfalisa_dockwidget import QgisSkjalftalisaDockWidget
+from qgis_skjalftalisa_dockwidget import QgisSkjalftalisaDockWidget
 
 from utilities import get_qgis_app
 
