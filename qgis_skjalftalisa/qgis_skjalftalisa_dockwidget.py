@@ -179,7 +179,7 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
     def fetch_and_load_earthquakes(self) -> None:
         """Fetch earthquake data and load it into QGIS."""
         try:
-            self._validate_time_range()
+            self._validate_user_input()
             payload = self._construct_earthquake_payload()
             response = self._fetch_earthquake_data(payload)
             geojson_data = self._process_earthquake_response(response)
@@ -203,12 +203,40 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             log_error(f"Unexpected error: {str(e)}")
             self.show_error(f"An unexpected error occurred: {str(e)}")
         
-    def _validate_time_range(self) -> None:
-        start_time = self.dateFromTimeEdit.dateTime()
-        end_time = self.dateUntilTimeEdit.dateTime()
+    def _validate_user_input(self) -> None:
+        """Validate start and end times, magnitudes, and depths.
 
-        if start_time >= end_time:
-            raise ValueError("'From' time must be earlier than 'Until' time.")
+        Raises:
+            InputValidationError: If the user input is invalid.
+        """
+        try:
+            start_time = self.dateFromTimeEdit.dateTime()
+            end_time = self.dateUntilTimeEdit.dateTime()
+
+            size_min = self.magMinSpinBox.value()
+            size_max = self.magMaxSpinBox.value()
+            depth_min = self.depthMinSpinBox.value()
+            depth_max = self.depthMaxSpinBox.value()
+
+            if start_time >= end_time:
+                raise InputValidationError("'From' time must be earlier than"
+                                        " 'Until' time.")
+
+            # Validate magnitude and depth ranges
+            if size_min < 0 or size_max > 10 or size_min > size_max:
+                raise InputValidationError("Magnitude values must be between 0"
+                                           "and 10, and min <= max.")
+            if depth_min < 0 or depth_max > 700 or depth_min > depth_max:
+                raise InputValidationError("Depth values must be between 0 and"
+                                           "700, and min <= max.")
+
+        except InputValidationError as e:
+            self.show_error(str(e), "Input Validation Error")
+            raise
+        except Exception as e:
+            log_error(f"Unexpected error: {str(e)}")
+            self.show_error(f"An unexpected error occurred: {str(e)}")
+            raise
     
     def _get_selected_area_polygon(self, selected_area: str) -> list:
         """Retrieve the polygon geometry of the selected area.
@@ -218,6 +246,10 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         Returns:
             list: The coordinates of the polygon if found, otherwise None.
+        
+        Raises:
+            GeoJsonProcessingError: If the selected area's polygon cannot be
+            retrieved or processed.
         """
         try:
             # Locate the geometry of the selected area in the GeoDataFrame
@@ -226,21 +258,31 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             ]
 
             if area_geometry.empty:
-                raise ValueError(f"No geometry found for the selected area:"
-                                 f" {selected_area}")
+                raise GeoJsonProcessingError(
+                    f"No geometry found for the selected area: {selected_area}"
+                    )
 
             # Extract the coordinates from the geometry
             polygon_coordinates = area_geometry.iloc[0].exterior.coords[:]
 
-            # Return as a list of [longitude, latitude] pairs
-            # return [[coord[0], coord[1]] for coord in polygon_coordinates]
-
             # Return as a list of [latitude, longitude] pairs
             return [[coord[1], coord[0]] for coord in polygon_coordinates]
         
+        except KeyError as e:
+            raise GeoJsonProcessingError(
+                f"Error retrieving polygon: Missing expected key in "
+                f"GeoDataFrame. Details: {str(e)}"
+            ) from e
+        except AttributeError as e:
+            raise GeoJsonProcessingError(
+                f"Error processing polygon geometry for area '{selected_area}'"
+                f": {str(e)}"
+            ) from e
         except Exception as e:
-            raise ValueError(f"Error retrieving polygon for area"
-                             f" '{selected_area}': {str(e)}")
+            raise GeoJsonProcessingError(
+                f"Unexpected error while retrieving polygon for area "
+                f"'{selected_area}': {str(e)}"
+            ) from e
     
     def _construct_earthquake_payload(self) -> dict:
         """Construct the payload for the earthquake API request.
@@ -248,15 +290,27 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         Returns:
             dict: A dictionary of keys and values as specified on Vedurstofan's
             API website.
+        
+        Raises:
+            InputValidationError: If input values (e.g., magnitude, depth) are
+            invalid.
+            GeoJsonProcessingError: If there is an error in retrieving the
+            selected area's polygon.
         """
 
         try:
-            start_time = start_time = self.dateFromTimeEdit.dateTime().toString("yyyy-MM-dd HH:mm:ss")
-            end_time = self.dateUntilTimeEdit.dateTime().toString("yyyy-MM-dd HH:mm:ss")
+            # Retrieve date/time values
+            dt_fmt = "yyyy-MM-dd HH:mm:ss"
+            start_time = self.dateFromTimeEdit.dateTime().toString(dt_fmt)
+            end_time = self.dateUntilTimeEdit.dateTime().toString(dt_fmt)
+            
+            # Retrieve magnitude and depth values
             size_min = self.magMinSpinBox.value()
             size_max = self.magMaxSpinBox.value()
             depth_min = self.depthMinSpinBox.value()
             depth_max = self.depthMaxSpinBox.value()
+
+            # Validate magnitude and depth ranges
 
             payload = {
             "depth_max": depth_max,
@@ -273,13 +327,30 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
             # Include selected area if specified
             selected_area = self.areaComboBox.currentText()
             if selected_area != "Choose area":
-                area_polygon = self._get_selected_area_polygon(selected_area)
-                if area_polygon:
-                    payload["area"] = area_polygon
+                try:
+                    area_polygon = self._get_selected_area_polygon(
+                        selected_area)
+                    if area_polygon:
+                        payload["area"] = area_polygon
+                except GeoJsonProcessingError as e:
+                    raise GeoJsonProcessingError(
+                        f"Failed to include selected area's polygon in the"
+                        f" payload: {str(e)}"
+                    ) from e
 
             return payload
+        
+        except InputValidationError as e:
+            self.show_error(str(e), "Input Validation Error")
+            raise
+        except GeoJsonProcessingError as e:
+            log_error(f"GeoJSON error while constructing payload: {str(e)}")
+            self.show_error(f"Error processing area polygon: {str(e)}")
+            raise
         except Exception as e:
-            raise ValueError(f"Failed to construct earthquake payload: {str(e)}")
+            log_error(f"Unexpected error while constructing payload: {str(e)}")
+            self.show_error(f"An unexpected error occurred: {str(e)}")
+            raise
 
     def _fetch_earthquake_data(self, payload: dict) -> requests.Response:
         """Send a POST request to fetch earthquake data
@@ -290,13 +361,38 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         Returns:
             requests.Response: a POST response containing JSON earthquake data
+
+        Raises:
+            ApiRequestError: If the HTTP request fails or the server returns an
+            error status code.
         """
         try:
+            # Send the POST request
             response = requests.post(EARTHQUAKE_API_ENDPOINT, json=payload)
-            response.raise_for_status()  # Raises an HTTPError for bad responses
+            response.raise_for_status()  # Raises an HTTPError for bad responses (4xx, 5xx)
+
             return response
+
+        except requests.HTTPError as e:
+            # Handle specific HTTP errors
+            error_message = (
+                f"HTTP error occurred: {response.status_code} - {response.reason}. "
+                f"Details: {response.text}"
+            )
+            log_error(error_message)
+            raise ApiRequestError(error_message) from e
+
         except requests.RequestException as e:
-            raise requests.RequestException(f"HTTP request failed: {str(e)}")
+            # Handle general request issues
+            error_message = f"Failed to fetch earthquake data due to a network or connection error: {str(e)}"
+            log_error(error_message)
+            raise ApiRequestError(error_message) from e
+
+        except Exception as e:
+            # Handle unexpected exceptions
+            error_message = f"An unexpected error occurred while fetching earthquake data: {str(e)}"
+            log_error(error_message)
+            raise ApiRequestError(error_message) from e
     
     def _process_earthquake_response(self, response: requests.Response) -> dict:
         """Process the API response into a correctly formatted GeoJSON and
@@ -308,6 +404,12 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
         Returns:
             dict: dictionary of GeoJSON-like keys and values
+
+        Raises:
+            GeoJsonProcessingError: If the response data cannot be parsed or
+            lacks required structure.
+            ApiRequestError: If the response indicates an API issue (e.g.,
+            missing expected keys).
         """
         try:
             quake_data = response.json()
@@ -324,11 +426,30 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
                 "type": "FeatureCollection",
                 "features": quake_data,
             }
+        
         except json.JSONDecodeError as e:
-            raise ValueError(f"Failed to parse API response as JSON: {str(e)}")
+            # Handle JSON parsing errors
+            error_message = f"Failed to parse API response as JSON: {str(e)}"
+            log_error(error_message)
+            raise GeoJsonProcessingError(error_message) from e
+
         except KeyError as e:
-            raise ValueError(f"Unexpected API response format: Missing key"
-                             f" {str(e)}")
+            # Handle missing keys in the response
+            error_message = (
+                f"Unexpected API response format: Missing expected key"
+                f" {str(e)}."
+            )
+            log_error(error_message)
+            raise ApiRequestError(error_message) from e
+
+        except Exception as e:
+            # Handle any unexpected errors
+            error_message = (
+                f"An unexpected error occurred while processing the earthquake"
+                f" response: {str(e)}"
+            )
+            log_error(error_message)
+            raise GeoJsonProcessingError(error_message) from e
     
     def _save_and_load_geojson(self,
                                geojson_data: dict,
@@ -338,6 +459,10 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
         Args:
             geojson_data (dict): dictionary of GeoJSON-like keys and values
             layer_name (str): layer name
+        
+        Raises:
+            GeoJsonProcessingError: If saving the GeoJSON to a file fails or if
+            the data is invalid.
         """
         try:
             from tempfile import NamedTemporaryFile
@@ -350,23 +475,55 @@ class QgisSkjalftalisaDockWidget(QtWidgets.QDockWidget, FORM_CLASS):
 
             # Load the GeoJSON layer into QGIS
             self.load_geojson_layer(geojson_path, layer_name)
+
         except (OSError, IOError) as e:
-            raise IOError(f"Failed to save or load GeoJSON data: {str(e)}")
+            # Handle file-related errors
+            error_message = f"Failed to save or load GeoJSON data: {str(e)}"
+            log_error(error_message)
+            raise GeoJsonProcessingError(error_message) from e
+
+        except Exception as e:
+            # Catch all other unexpected errors
+            error_message = (f"An unexpected error occurred while saving or"
+                             f" loading GeoJSON: {str(e)}")
+            log_error(error_message)
+            raise GeoJsonProcessingError(error_message) from e
     
     def _display_area_if_checked(self) -> None:
         """Display a polygon of the area of interest if the checkbox is ticked.
+
+        Raises:
+            GeoJsonProcessingError: If the geometry of the selected area cannot
+            be found or processed.
         """
         try:
+            # Check if the "Show area" checkbox is checked
             if self.areaCheckBox.isChecked():
                 selected_area = self.areaComboBox.currentText()
+
+                # Ensure a valid area is selected
                 if selected_area != "Choose area":
+                    # Locate the geometry of selected area in the GeoDataFrame
                     geometry_str = self.feature_collection_gdf.loc[
                         self.feature_collection_gdf["name"] == selected_area
                     ]["geometry"].to_json()
+
+                    # Display the polygon for the selected area
                     self.display_area_polygon(selected_area, geometry_str)
-        except KeyError:
-            raise ValueError(f"Failed to find geometry for area:"
-                             f" {selected_area}")
+
+        except KeyError as e:
+            # Handle missing geometry for the selected area
+            error_message = (f"Failed to find geometry for area "
+                             f"'{selected_area}': {str(e)}")
+            log_error(error_message)
+            raise GeoJsonProcessingError(error_message) from e
+
+        except Exception as e:
+            # Catch all other unexpected errors
+            error_message = (f"An unexpected error occurred while displaying "
+                             f"the area polygon: {str(e)}")
+            log_error(error_message)
+            raise GeoJsonProcessingError(error_message) from e
 
 
     def load_geojson_layer(self, geojson_path, layer_name="Earthquakes"):
