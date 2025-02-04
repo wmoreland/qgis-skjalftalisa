@@ -1,0 +1,65 @@
+name: Create QGIS Plugin Zip
+
+on:
+  workflow_dispatch: # This allows the action to be manually triggered
+
+permissions:
+  contents: write # Ensure the token has write permissions to create a release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the code
+        uses: actions/checkout@v4 # Updated to a version that uses Node.js 16/20
+
+      - name: Set up Python
+        uses: actions/setup-python@v5 # Updated to a version that uses Node.js 16/20
+        with:
+          python-version: "3.x" # Specify your required Python version here
+
+      - name: Extract version from metadata.txt
+        id: extract_version
+        run: |
+          VERSION=$(python -c "import configparser; config = configparser.ConfigParser(); config.read('qgis_skjalftalisa/metadata.txt'); print(config['general']['version'])")
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Create the zip folder for QGIS Plugin
+        run: |
+          # Create a directory for the zip file
+          mkdir qgis_plugin
+
+          # Copy the qgis_skjalftalisa folder excluding certain files
+          rsync -av --exclude='README.html' --exclude='README.txt' --exclude='help/' --exclude='i18n/' --exclude='scripts/' --exclude='test/' qgis_skjalftalisa/ qgis_plugin/qgis_skjalftalisa/
+
+          # Copy the LICENSE file to the zip directory
+          cp LICENSE qgis_plugin/
+
+          # Change to the directory containing the files
+          cd qgis_plugin
+
+          # Create a zip file of the directory including the LICENSE file
+          zip -r ../qgis_skjalftalisa.zip .
+
+      - name: Create a GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ env.VERSION }} # Use the extracted version
+          release_name: "QGIS Plugin Release v${{ env.VERSION }}" # Use the extracted version in the release name
+          body: "This release contains version ${{ env.VERSION }} of the QGIS plugin."
+          draft: false
+          prerelease: false
+
+      - name: Upload the zip file to the Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./qgis_skjalftalisa.zip
+          asset_name: qgis_skjalftalisa_v${{ env.VERSION }}.zip # Include version in the asset name
+          asset_content_type: application/zip # Specify the correct MIME type
