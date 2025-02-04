@@ -1,6 +1,8 @@
 # QGIS-Skjálftalísa
 A plugin for loading earthquake data into QGIS.
 
+https://github.com/user-attachments/assets/3fc6eec2-c1df-442d-ade5-e8c22fbab336
+
 # How to install
 
 1. Download a zip archive of the latest release from [here](https://github.com/wmoreland/qgis-skjalftalisa/releases/latest)
